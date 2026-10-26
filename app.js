@@ -2,7 +2,7 @@ import {resultImage, resultPages} from './result-image.mjs?v=3';
 import {compressAvatar, isAvatar} from './avatars.mjs';
 import {SCORE_KEY, LEGACY_KEY, score, validateScore, freshScore, migrateLegacy,
   addMemberRow, setCupCount, undoLast, makeResult} from './scoring.mjs?v=3';
-import {DEFAULT_GAMES, parseGames, pickGame} from './games.mjs?v=3';
+import {DEFAULT_GAMES, INTERACTION_GAMES, parseGames, pickGame} from './games.mjs?v=5';
 
 const app = document.querySelector('#app');
 const sheet = document.querySelector('#sheet');
@@ -154,12 +154,21 @@ function roll(id) {
   let game;
   if (!mutate(next => { const p = next.people.find(p => p.id === id); game = pickGame(next.games || DEFAULT_GAMES, p.lastAdventure); p.lastAdventure = game; })) return;
   const [title, ...body] = game.split('｜');
-  modal(person.name + '的大冒险', `<div class="adventure-card"><span class="adventure-icon">${dice}</span>${body.length ? `<h3>${esc(title)}</h3><p>${esc(body.join('｜'))}</p>` : `<p>${esc(game)}</p>`}</div><p class="hint">杯数由你手动记录。</p><div class="two-actions"><button class="secondary" id="reroll">再摇一次</button><button class="primary" id="finish-game">完成</button></div>`);
+  modal(person.name + '的大冒险', `<div class="adventure-card"><span class="adventure-icon">${dice}</span>${body.length ? `<h3>${esc(title)}</h3><p>${esc(body.join('｜'))}</p>` : `<p>${esc(game)}</p>`}</div><p class="hint">${INTERACTION_GAMES.includes(game) ? '双方愿意再参与，可换搭档或换题，拒绝不记杯。' : '杯数由你手动记录。'}</p><div class="two-actions"><button class="secondary" id="reroll">再摇一次</button><button class="primary" id="finish-game">完成</button></div>`);
   sheet.querySelector('#reroll').onclick = () => roll(id);
   sheet.querySelector('#finish-game').onclick = () => sheet.close();
 }
 function editGames() {
-  modal('大冒险题库', `<form><label class="field" for="game-library">每行一个游戏，可以直接修改或添加</label><textarea class="input game-editor" id="game-library" rows="11" spellcheck="false">${esc((data.games || DEFAULT_GAMES).join('\n'))}</textarea><p class="hint">${(data.games || DEFAULT_GAMES).length} 个题目 · 每次随机抽一个</p><p class="error" role="alert"></p><div class="settings-actions"><button class="primary">保存题库</button><button class="secondary" type="button" id="default-games">填入默认题库</button></div></form>`);
+  modal('大冒险题库', `<form><label class="field" for="game-library">每行一个游戏，可以直接修改或添加</label><textarea class="input game-editor" id="game-library" rows="11" spellcheck="false">${esc((data.games || DEFAULT_GAMES).join('\n'))}</textarea><p class="hint">${(data.games || DEFAULT_GAMES).length} 个题目 · 每次随机抽一个</p><p class="error" role="alert"></p><div class="settings-actions"><button class="primary">保存题库</button><button class="secondary" type="button" id="interaction-games">添加 16 道互动题</button><button class="secondary" type="button" id="default-games">填入默认题库</button></div></form>`);
+  sheet.querySelector('#interaction-games').onclick = () => {
+    try {
+      const editor = sheet.querySelector('#game-library');
+      const games = parseGames(editor.value + '\n' + INTERACTION_GAMES.join('\n'));
+      editor.value = games.join('\n');
+      sheet.querySelector('.error').textContent = '';
+      sheet.querySelector('.hint').textContent = `共 ${games.length} 个题目，原题保留且已去重，点击保存后生效`;
+    } catch (error) { sheet.querySelector('.error').textContent = error.message; }
+  };
   sheet.querySelector('#default-games').onclick = () => { sheet.querySelector('#game-library').value = DEFAULT_GAMES.join('\n'); sheet.querySelector('.hint').textContent = '已填入默认题库，点击保存后生效'; };
   sheet.querySelector('form').onsubmit = event => {
     event.preventDefault();
