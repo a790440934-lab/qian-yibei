@@ -57,21 +57,20 @@ function confirmAction(title, message, action) {
 const camera = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 6l1.5-2h5L16 6h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><circle cx="12" cy="12.5" r="3.5"/></svg>';
 const dice = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.4"/><circle cx="16" cy="8" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="8" cy="16" r="1.4"/><circle cx="16" cy="16" r="1.4"/></g></svg>';
 function avatarMarkup(person) {
-  return isAvatar(person.avatar) ? `<img src="${esc(person.avatar)}" alt="${esc(person.name)}的头像" width="48" height="48">` : camera;
+  return isAvatar(person.avatar) ? `<img src="${esc(person.avatar)}" alt="${esc(person.name)}的头像" width="64" height="64">` : camera;
 }
 function memberRow(person) {
   const count = score(data, person.id), id = esc(person.id), name = esc(person.name);
   return `<article class="member-row" data-person="${id}" aria-label="${name}">
-    <div class="member-identity"><button class="avatar" data-action="avatar" data-id="${id}" aria-label="${name}：拍照或上传头像">${avatarMarkup(person)}</button><button class="member-name" data-action="member" data-id="${id}" aria-label="编辑${name}">${name}</button></div>
-    <div class="stepper" aria-label="${name}的杯数"><button class="step minus" data-action="minus" data-id="${id}" aria-label="${name}减一杯" ${count <= 0 || storageError ? 'disabled' : ''}>−</button><button class="cup-value ${String(count).length > 4 ? 'long-number' : ''}" data-action="amount" data-id="${id}" aria-label="修改${name}的杯数，当前${count}杯"><strong>${count}</strong><span>杯</span></button><button class="step plus" data-action="plus" data-id="${id}" aria-label="${name}加一杯" ${count >= 999999999 || storageError ? 'disabled' : ''}>＋</button></div>
-    <button class="clear-row" data-action="clear" data-id="${id}" aria-label="清空${name}的杯数" ${count === 0 || storageError ? 'disabled' : ''}>清空</button>
-    <button class="dice-button" data-action="dice" data-id="${id}" aria-label="为${name}随机抽取大冒险" ${storageError ? 'disabled' : ''}>${dice}</button>
+    <button class="avatar" data-action="avatar" data-id="${id}" aria-label="${name}：拍照或上传头像">${avatarMarkup(person)}</button>
+    <div class="member-controls"><button class="member-name" data-action="member" data-id="${id}" aria-label="编辑${name}">${name}</button><div class="stepper" aria-label="${name}的杯数"><button class="step minus" data-action="minus" data-id="${id}" aria-label="${name}减一杯" ${count <= 0 || storageError ? 'disabled' : ''}><span class="step-face" aria-hidden="true">−</span></button><button class="step plus" data-action="plus" data-id="${id}" aria-label="${name}加一杯" ${count >= 999999999 || storageError ? 'disabled' : ''}><span class="step-face" aria-hidden="true">＋</span></button></div></div>
+    <div class="cup-summary"><button class="cup-value ${String(count).length > 4 ? 'long-number' : ''}" data-action="amount" data-id="${id}" aria-label="修改${name}的杯数，当前${count}杯"><strong>${count}</strong><span>杯</span></button><button class="clear-row" data-action="clear" data-id="${id}" aria-label="清空${name}的杯数" ${count === 0 || storageError ? 'disabled' : ''}>清空</button></div>
+    <div class="adventure-cell"><button class="dice-button" data-action="dice" data-id="${id}" aria-label="为${name}随机抽取大冒险" ${storageError ? 'disabled' : ''}>${dice}</button><span aria-hidden="true">冒险</span></div>
   </article>`;
 }
 function render() {
   app.innerHTML = `<header class="top"><div class="brand"><span class="brand-mark" aria-hidden="true">杯</span><h1>欠一杯</h1><span class="member-count">${data.people.length} 人</span></div><button class="menu-button" data-action="settings" aria-label="更多设置">•••</button></header>
     ${storageError ? '<p class="error">无法读取本地数据，已暂停编辑。请从更多菜单导出原始备份。</p>' : ''}
-    <div class="column-labels" aria-hidden="true"><span>头像</span><span>杯数</span><span>清空</span><span>大冒险</span></div>
     <section class="member-list" aria-label="成员列表">${data.people.map(memberRow).join('') || '<div class="empty"><span class="empty-cup" aria-hidden="true">＋</span><p>添加一位朋友，开始记杯。</p></div>'}</section>
     <footer class="add-bar"><button class="add-button" data-action="add" ${storageError ? 'disabled' : ''}>＋ 添加一行</button></footer>`;
 }
