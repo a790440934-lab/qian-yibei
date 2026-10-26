@@ -1,6 +1,6 @@
 :root{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-synthesis:none;color:#203f36;background:#eeeae1;--green:#183e35;--paper:#f7f5ec;--muted:#7b8176;--line:#e4e6da;--amber:#efc879}
 *{box-sizing:border-box}body{margin:0}button,input,textarea{font:inherit}button{cursor:pointer;border:0;touch-action:manipulation;color:inherit;-webkit-tap-highlight-color:transparent;transition:background .15s ease,transform .12s ease-out}button:active{transform:scale(.97)}button:disabled{opacity:.35;cursor:default;transform:none}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #a87330;outline-offset:3px}button:focus-visible{transition:none}input,textarea{font-size:16px}svg{display:block}h1,h2,h3,p{overflow-wrap:anywhere}p{line-height:1.65;font-size:14px;color:var(--muted)}#app{max-width:560px;min-height:100dvh;margin:auto;background:var(--paper);padding:0 14px calc(92px + env(safe-area-inset-bottom))}.skip-link{position:fixed;top:-80px;left:14px;padding:12px;background:var(--green);color:white;z-index:20}.skip-link:focus{top:8px}
-/* Compact member cards: larger photo, name above small controls, count on the right. */
+/* Compact member cards: name at left, large red count, stacked controls on its right. */
 .top { display:flex; align-items:center; justify-content:space-between; height:82px; gap:12px; }
 .brand { display:flex; align-items:center; gap:10px; }
 .brand h1 { font-size:23px; letter-spacing:1px; margin:0; font-weight:750; }
@@ -8,26 +8,29 @@
 .member-count { font-size:11px; color:#77816d; background:#e9edde; border-radius:20px; padding:4px 9px; margin-left:2px; }
 .menu-button { width:44px; height:44px; background:transparent; border-radius:50%; font-size:14px; letter-spacing:2px; }
 .member-list { display:grid; gap:10px; }
-.member-row { display:grid; grid-template-columns:64px minmax(0,1fr) 62px 40px; gap:10px; align-items:center; min-height:98px; padding:12px; border:1px solid #e3e7db; border-radius:20px; background:#fffefa; box-shadow:0 3px 12px #23443804; scroll-margin-bottom:100px; }
+.member-row { display:grid; grid-template-columns:64px minmax(0,1fr) 40px; gap:8px; align-items:center; min-height:98px; padding:12px; border:1px solid #e3e7db; border-radius:20px; background:#fffefa; box-shadow:0 3px 12px #23443804; scroll-margin-bottom:100px; }
 .avatar { width:64px; height:64px; border-radius:19px; background:#eaf0e3; color:#71886a; border:1px solid #e1e8d8; display:grid; place-items:center; overflow:hidden; padding:0; }
 .avatar svg { width:28px; height:28px; }
 .avatar img,.avatar-preview img { width:100%; height:100%; object-fit:cover; }
 .member-row:nth-child(3n+2) .avatar { background:#f4ecdc; border-color:#eee5d3; color:#a18a60; }
 .member-row:nth-child(3n) .avatar { background:#e9eef0; border-color:#e0e7e9; color:#748b92; }
-.member-controls { min-width:0; align-self:center; }
-.member-name { display:block; max-width:100%; min-height:32px; padding:3px 0; margin-left:4px; text-align:left; background:transparent; color:#314d40; font-size:15px; line-height:24px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.stepper { display:flex; align-items:center; gap:2px; margin-left:-2px; }
-.step { display:grid; place-items:center; width:40px; height:40px; padding:0; background:transparent; user-select:none; -webkit-user-select:none; transition:none; border-radius:12px; }
+.member-controls { display:grid; grid-template-columns:minmax(0,1fr) 80px 36px; gap:5px; align-items:center; min-width:0; }
+.member-label { min-width:0; align-self:start; }
+.owed-label { display:block; padding:8px 0 0 4px; color:#8e9685; font-size:14px; line-height:28px; }
+.member-name { display:block; max-width:calc(100% - 4px); min-height:32px; padding:3px 0; margin-left:4px; text-align:left; background:transparent; color:#314d40; font-size:15px; line-height:24px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.stepper { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.step { display:grid; place-items:center; width:36px; height:36px; padding:0; background:transparent; user-select:none; -webkit-user-select:none; transition:none; border-radius:12px; }
 .step-face { display:grid; place-items:center; width:28px; height:28px; border-radius:9px; font-size:19px; font-weight:400; line-height:1; }
 .minus .step-face { background:#f0f2eb; color:#74816b; }
 .plus .step-face { background:#e7efdf; color:#355b3b; }
 .cup-summary { display:flex; flex-direction:column; align-items:center; min-width:0; }
-.cup-value { display:flex; align-items:baseline; justify-content:center; gap:3px; width:100%; min-height:40px; min-width:0; padding:3px 0 0; background:transparent; }
-.cup-value strong { color:var(--green); font-size:33px; line-height:1.12; letter-spacing:-1px; font-weight:650; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; min-width:0; }
-.cup-value span { flex-shrink:0; font-size:10px; color:#8a9380; }
+.cup-value { display:flex; align-items:baseline; justify-content:center; gap:3px; width:100%; min-height:52px; min-width:0; padding:0; background:transparent; }
+.cup-value strong { color:#d7473e; font-size:48px; line-height:1.08; letter-spacing:-1.5px; font-weight:750; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; min-width:0; }
+.cup-value span { flex-shrink:0; font-size:14px; color:#c66a5f; }
+.cup-value.medium-number strong { font-size:30px; letter-spacing:-1px; }
 .cup-value.long-number { align-items:center; }
 .cup-value.long-number strong { font-size:12px; letter-spacing:-.5px; }
-.clear-row { min-width:40px; min-height:32px; padding:3px 7px; background:transparent; border-radius:9px; color:#9a9d8b; font-size:11px; }
+.clear-row { min-width:40px; min-height:28px; padding:3px 7px; background:transparent; border-radius:9px; color:#9a9d8b; font-size:11px; }
 .adventure-cell { display:flex; flex-direction:column; align-items:center; gap:6px; }
 .dice-button { display:grid; place-items:center; width:40px; height:40px; border-radius:13px; background:#f6ebce; color:#9a7d42; border:1px solid #f0e3c0; }
 .dice-button svg { width:22px; height:22px; }
@@ -42,21 +45,23 @@ dialog{border:1px solid var(--line);padding:20px;border-radius:22px;width:calc(1
 @media(min-width:600px) {
   #app { border-inline:1px solid var(--line); padding-inline:24px; }
   .add-bar { padding-inline:24px; }
-  .member-row { grid-template-columns:72px minmax(0,1fr) 74px 44px; gap:16px; min-height:104px; padding:14px; }
+  .member-row { grid-template-columns:72px minmax(0,1fr) 44px; gap:14px; min-height:104px; padding:14px; }
   .avatar { width:72px; height:72px; border-radius:21px; }
   .member-name { font-size:16px; }
   .dice-button { width:44px; height:44px; }
 }
 @media(max-width:359px) {
   #app { padding-inline:8px; }
-  .member-row { grid-template-columns:60px minmax(0,1fr) 54px 36px; gap:7px; padding:10px; min-height:94px; border-radius:17px; }
+  .member-row { grid-template-columns:60px minmax(0,1fr) 36px; gap:6px; padding:10px; min-height:94px; border-radius:17px; }
   .avatar { width:60px; height:60px; border-radius:17px; }
   .member-name { font-size:14px; }
-  .stepper { gap:0; }
-  .step { width:36px; }
+  .member-controls { grid-template-columns:minmax(0,1fr) 64px 32px; gap:4px; }
+  .stepper { gap:2px; }
+  .step { width:32px; height:36px; }
   .step-face { width:26px; height:26px; }
   .dice-button { width:36px; height:40px; }
-  .cup-value strong { font-size:30px; }
+  .cup-value strong { font-size:42px; }
+  .cup-value.medium-number strong { font-size:24px; }
   .cup-value.long-number strong { font-size:11px; }
   .add-bar { padding-inline:8px; }
 }
