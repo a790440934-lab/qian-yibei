@@ -14,9 +14,8 @@
 .avatar img,.avatar-preview img { width:100%; height:100%; object-fit:cover; }
 .member-row:nth-child(3n+2) .avatar { background:#f4ecdc; border-color:#eee5d3; color:#a18a60; }
 .member-row:nth-child(3n) .avatar { background:#e9eef0; border-color:#e0e7e9; color:#748b92; }
-.member-controls { display:grid; grid-template-columns:minmax(0,1fr) 80px 36px; gap:5px; align-items:center; min-width:0; }
+.member-controls { display:grid; grid-template-columns:minmax(0,1fr) 98px 36px; gap:5px; align-items:center; min-width:0; }
 .member-label { min-width:0; align-self:start; }
-.owed-label { display:block; padding:8px 0 0 4px; color:#8e9685; font-size:14px; line-height:28px; }
 .member-name { display:block; max-width:calc(100% - 4px); min-height:32px; padding:3px 0; margin-left:4px; text-align:left; background:transparent; color:#314d40; font-size:15px; line-height:24px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .stepper { display:flex; flex-direction:column; align-items:center; gap:2px; }
 .step { display:grid; place-items:center; width:36px; height:36px; padding:0; background:transparent; user-select:none; -webkit-user-select:none; transition:none; border-radius:12px; }
@@ -27,7 +26,7 @@
 .cup-value { display:flex; align-items:baseline; justify-content:center; gap:3px; width:100%; min-height:52px; min-width:0; padding:0; background:transparent; }
 .cup-value strong { color:#d7473e; font-size:48px; line-height:1.08; letter-spacing:-1.5px; font-weight:750; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; min-width:0; }
 .cup-value span { flex-shrink:0; font-size:14px; color:#c66a5f; }
-.cup-value.medium-number strong { font-size:30px; letter-spacing:-1px; }
+.cup-value.medium-number strong { font-size:26px; letter-spacing:-1px; }
 .cup-value.long-number { align-items:center; }
 .cup-value.long-number strong { font-size:12px; letter-spacing:-.5px; }
 .clear-row { min-width:40px; min-height:28px; padding:3px 7px; background:transparent; border-radius:9px; color:#9a9d8b; font-size:11px; }
@@ -55,14 +54,16 @@ dialog{border:1px solid var(--line);padding:20px;border-radius:22px;width:calc(1
   .member-row { grid-template-columns:60px minmax(0,1fr) 36px; gap:6px; padding:10px; min-height:94px; border-radius:17px; }
   .avatar { width:60px; height:60px; border-radius:17px; }
   .member-name { font-size:14px; }
-  .member-controls { grid-template-columns:minmax(0,1fr) 64px 32px; gap:4px; }
+  .member-controls { grid-template-columns:minmax(0,1fr) 80px 32px; gap:4px; }
   .stepper { gap:2px; }
   .step { width:32px; height:36px; }
   .step-face { width:26px; height:26px; }
   .dice-button { width:36px; height:40px; }
+  .cup-value { gap:2px; }
+  .cup-value span { font-size:12px; }
   .cup-value strong { font-size:42px; }
-  .cup-value.medium-number strong { font-size:24px; }
-  .cup-value.long-number strong { font-size:11px; }
+  .cup-value.medium-number strong { font-size:20px; }
+  .cup-value.long-number strong { font-size:10px; }
   .add-bar { padding-inline:8px; }
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}button:active{transform:none}}
