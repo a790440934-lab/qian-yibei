@@ -1,7 +1,7 @@
 import {resultImage, resultPages} from './result-image.mjs?v=3';
 import {compressAvatar, isAvatar} from './avatars.mjs';
 import {SCORE_KEY, LEGACY_KEY, score, validateScore, freshScore, migrateLegacy,
-  addMemberRow, setCupCount, undoLast, makeResult} from './scoring.mjs?v=3';
+  addMemberRow, setCupCount, undoLast, makeResult, removeMember, startNewRound} from './scoring.mjs?v=8';
 import {DEFAULT_GAMES, INTERACTION_GAMES, parseGames, pickGame} from './games.mjs?v=5';
 
 const app = document.querySelector('#app');
@@ -11,6 +11,46 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const scoreText = n => String(n);
 let data = freshScore(), storageError = false;
 let resultImageUrl = null, resultGeneration = 0;
+const currentScript = new URL(import.meta.url);
+const appVersion = currentScript.searchParams.get('v') || '本地版';
+let availableVersion = null, updateChecking = false, lastUpdateCheck = 0;
+
+function openLatest(version = availableVersion || appVersion) {
+  const url = new URL('./', location.href);
+  url.searchParams.set('v', version);
+  url.searchParams.set('refresh', String(Date.now()));
+  location.replace(url.href);
+}
+async function checkForUpdate(manual = false) {
+  if (updateChecking || (!manual && Date.now() - lastUpdateCheck < 60000)) return;
+  if (!['https:', 'http:'].includes(location.protocol)) return;
+  updateChecking = true;
+  lastUpdateCheck = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const url = new URL('./index.html', location.href);
+    url.searchParams.set('_check', String(Date.now()));
+    const response = await fetch(url, {cache: 'no-store', signal: controller.signal});
+    if (!response.ok) throw Error('更新检查失败');
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    const source = doc.querySelector('script[type="module"][src]')?.getAttribute('src');
+    if (!source) throw Error('无法确认版本');
+    const script = new URL(source, url);
+    if (script.origin !== currentScript.origin || script.pathname !== currentScript.pathname) throw Error('版本地址异常');
+    const version = script.searchParams.get('v');
+    if (!version) throw Error('没有版本信息');
+    const nextVersion = version !== appVersion ? version : null;
+    if (nextVersion !== availableVersion) { availableVersion = nextVersion; render(); }
+    if (manual) {
+      modal(availableVersion ? '发现新版本' : '已是最新版本', `<p>${availableVersion ? '更新页面后即可使用新功能。' : '如页面显示异常，可重新载入。'}已保存的成员、头像和杯数会保留。</p><div class="settings-actions"><button class="primary" id="apply-update">${availableVersion ? '更新到最新版' : '重新载入页面'}</button><button class="secondary" id="keep-page">暂不刷新</button></div>`);
+      sheet.querySelector('#apply-update').onclick = () => openLatest();
+      sheet.querySelector('#keep-page').onclick = () => sheet.close();
+    }
+  } catch {
+    if (manual) toast('暂时无法检查更新，请确认网络后重试');
+  } finally { clearTimeout(timeout); updateChecking = false; }
+}
 
 function cleanupResult() {
   resultGeneration++;
@@ -62,6 +102,7 @@ function avatarMarkup(person) {
 function memberRow(person) {
   const count = score(data, person.id), id = esc(person.id), name = esc(person.name);
   return `<article class="member-row" data-person="${id}" aria-label="${name}">
+    <button class="remove-row" data-action="remove" data-id="${id}" aria-label="删除${name}" ${storageError ? 'disabled' : ''}><span aria-hidden="true">×</span></button>
     <button class="avatar" data-action="avatar" data-id="${id}" aria-label="${name}：拍照或上传头像">${avatarMarkup(person)}</button>
     <div class="member-controls"><div class="member-label"><button class="member-name" data-action="member" data-id="${id}" aria-label="编辑${name}">${name}</button></div>
       <div class="cup-summary"><button class="cup-value ${String(count).length > 4 ? 'long-number' : String(count).length > 2 ? 'medium-number' : ''}" data-action="amount" data-id="${id}" aria-label="修改${name}的杯数，当前${count}杯"><span class="owed-label">欠</span><strong>${count}</strong><span>杯</span></button><button class="clear-row" data-action="clear" data-id="${id}" aria-label="清空${name}的杯数" ${count === 0 || storageError ? 'disabled' : ''}>清空</button></div>
@@ -73,6 +114,7 @@ function memberRow(person) {
 function render() {
   app.innerHTML = `<header class="top"><div class="brand"><span class="brand-mark" aria-hidden="true">杯</span><h1>欠一杯</h1><span class="member-count">${data.people.length} 人</span></div><button class="menu-button" data-action="settings" aria-label="更多设置">•••</button></header>
     ${storageError ? '<p class="error">无法读取本地数据，已暂停编辑。请从更多菜单导出原始备份。</p>' : ''}
+    ${availableVersion ? '<button class="update-banner" data-action="update">有新版本 · 点击更新，记杯数据保留 ↻</button>' : ''}
     <section class="member-list" aria-label="成员列表">${data.people.map(memberRow).join('') || '<div class="empty"><span class="empty-cup" aria-hidden="true">＋</span><p>添加一位朋友，开始记杯。</p></div>'}</section>
     <footer class="add-bar"><button class="add-button" data-action="add" ${storageError ? 'disabled' : ''}>＋ 添加一行</button></footer>`;
 }
@@ -116,14 +158,29 @@ function editMember(id) {
     if (!name || data.people.some(p => p.id !== id && p.name === name)) { sheet.querySelector('.error').textContent = '称呼不能为空，也不能与其他成员重复'; return; }
     if (mutate(next => { const p = next.people.find(p => p.id === id); p.name = name; p.updatedAt = new Date().toISOString(); })) { sheet.close(); render(); }
   };
-  sheet.querySelector('#remove-member').onclick = () => confirmAction('移出' + person.name + '？', '杯数、头像和记录将保留，可从更多菜单恢复。', () => mutate(next => {
-    const p = next.people.find(p => p.id === id);
-    next.removedPeople ??= [];
-    next.removedPeople.push({person: p, records: next.records.filter(r => r.personId === id), removedAt: new Date().toISOString()});
-    next.people = next.people.filter(p => p.id !== id);
-    next.records = next.records.filter(r => r.personId !== id);
-  }));
+  sheet.querySelector('#remove-member').onclick = () => deleteMember(id);
 }
+function deleteMember(id) {
+  const person = data.people.find(p => p.id === id);
+  if (!person) return;
+  confirmAction('确认删除这个成员？', `将从当前名单删除「${esc(person.name)}」，当前欠 ${score(data, id)} 杯。误删可在“更多 → 已移出成员”恢复头像、杯数和记录。`, () => mutate(next => removeMember(next, id)));
+}
+function newRound() {
+  const title = new Date().toLocaleString('zh-CN', {month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false}) + ' 本局成绩';
+  modal('新开一局', `<p>新局保留现有成员、名字、头像和题库，所有成员的杯数归零。</p><label class="field" for="round-title">本局保存名称</label><input class="input" id="round-title" maxlength="24" value="${esc(title)}"><p class="hint">保存后可在“更多 → 已保存结果”查看本局杯数、生成图片。</p><p class="error" id="round-error" role="alert"></p><div class="settings-actions"><button class="primary" id="save-new-round">保存本局并新开</button><button class="secondary" id="direct-new-round">不保存成绩，直接新开</button><button class="text-btn" id="cancel-round">取消，继续本局</button></div>`);
+  sheet.querySelector('#cancel-round').onclick = () => sheet.close();
+  sheet.querySelector('#save-new-round').onclick = () => {
+    if (mutate(next => startNewRound(next, {save: true, title: sheet.querySelector('#round-title').value}, uid))) {
+      sheet.close(); render(); toast('本局成绩已保存，新一局开始');
+    } else sheet.querySelector('#round-error').textContent = '未开始新局，原杯数保留。请检查名称、结果数量或存储空间。';
+  };
+  sheet.querySelector('#direct-new-round').onclick = () => confirmAction('不保存成绩，直接新开？', '所有在场成员的杯数将归零，成员和头像保留。本次不新增成绩单。', () => {
+    const ok = mutate(next => startNewRound(next, {save: false}, uid));
+    if (ok) toast('新一局开始，杯数已归零');
+    return ok;
+  });
+}
+
 function editAvatar(id) {
   const person = data.people.find(p => p.id === id);
   if (!person) return;
@@ -199,7 +256,9 @@ function removedMembers() {
   }; });
 }
 function settings() {
-  modal('更多', `<div class="settings-actions"><button class="secondary" id="games">编辑大冒险题库</button><button class="secondary" id="undo" ${data.records.length && !storageError ? '' : 'disabled'}>撤销上次杯数操作</button><button class="secondary" id="save-result" ${data.people.length && !storageError ? '' : 'disabled'}>保存当前结果 / 生成图片</button><button class="secondary" id="saved-results">已保存结果（${data.results?.length || 0}）</button><button class="secondary" id="export">导出备份</button><label class="secondary photo-picker">导入备份<input id="import" type="file" accept=".json,application/json" aria-label="导入备份"></label><button class="secondary" id="removed">已移出成员（${data.removedPeople?.length || 0}）</button><button class="text-btn" id="legacy-export">导出旧版酒账</button></div><p class="hint">数据保存在此浏览器，换设备请先导出备份。</p>`);
+  modal('更多', `<div class="settings-actions"><button class="primary" id="new-round" ${data.people.length && !storageError ? '' : 'disabled'}>新开一局</button><button class="secondary" id="games">编辑大冒险题库</button><button class="secondary" id="undo" ${data.records.length && !storageError ? '' : 'disabled'}>撤销上次杯数操作</button><button class="secondary" id="save-result" ${data.people.length && !storageError ? '' : 'disabled'}>保存当前结果 / 生成图片</button><button class="secondary" id="saved-results">已保存结果（${data.results?.length || 0}）</button><button class="secondary" id="export">导出备份</button><label class="secondary photo-picker">导入备份<input id="import" type="file" accept=".json,application/json" aria-label="导入备份"></label><button class="secondary" id="removed">已移出成员（${data.removedPeople?.length || 0}）</button><button class="secondary" id="check-update">检查更新</button><button class="text-btn" id="legacy-export">导出旧版酒账</button></div><p class="hint">数据保存在此浏览器，换设备请先导出备份。<br>页面版本 v${esc(appVersion)}</p>`);
+  sheet.querySelector('#new-round').onclick = newRound;
+  sheet.querySelector('#check-update').onclick = () => checkForUpdate(true);
   sheet.querySelector('#games').onclick = editGames;
   sheet.querySelector('#save-result').onclick = saveResultForm;
   sheet.querySelector('#saved-results').onclick = savedResults;
@@ -226,6 +285,8 @@ app.onclick = event => {
   if (['minus', 'plus', 'clear'].includes(action)) { changeCount(id, action); return; }
   switch (action) {
     case 'add': addRow(); break;
+    case 'remove': deleteMember(id); break;
+    case 'update': openLatest(); break;
     case 'avatar': editAvatar(id); break;
     case 'member': editMember(id); break;
     case 'amount': editAmount(id); break;
@@ -242,6 +303,10 @@ window.addEventListener('storage', event => {
   } catch { storageError = true; sheet.close(); render(); toast('读取数据失败，已暂停编辑'); }
 });
 render();
+checkForUpdate();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+window.addEventListener('pageshow', () => checkForUpdate());
+setInterval(() => { if (!document.hidden) checkForUpdate(); }, 60000);
 
 function saveResultForm(){
  if(storageError){toast('存储异常，请先处理数据备份');return}

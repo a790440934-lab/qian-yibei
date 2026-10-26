@@ -8,7 +8,7 @@
 .member-count { font-size:11px; color:#77816d; background:#e9edde; border-radius:20px; padding:4px 9px; margin-left:2px; }
 .menu-button { width:44px; height:44px; background:transparent; border-radius:50%; font-size:14px; letter-spacing:2px; }
 .member-list { display:grid; gap:10px; }
-.member-row { display:grid; grid-template-columns:64px minmax(0,1fr) 40px; gap:8px; align-items:center; min-height:98px; padding:12px; border:1px solid #e3e7db; border-radius:20px; background:#fffefa; box-shadow:0 3px 12px #23443804; scroll-margin-bottom:100px; }
+.member-row { position:relative; display:grid; grid-template-columns:64px minmax(0,1fr) 40px; gap:8px; align-items:center; min-height:98px; padding:12px; border:1px solid #e3e7db; border-radius:20px; background:#fffefa; box-shadow:0 3px 12px #23443804; scroll-margin-bottom:100px; }
 .avatar { width:64px; height:64px; border-radius:19px; background:#eaf0e3; color:#71886a; border:1px solid #e1e8d8; display:grid; place-items:center; overflow:hidden; padding:0; }
 .avatar svg { width:28px; height:28px; }
 .avatar img,.avatar-preview img { width:100%; height:100%; object-fit:cover; }
@@ -67,3 +67,10 @@ dialog{border:1px solid var(--line);padding:20px;border-radius:22px;width:calc(1
   .add-bar { padding-inline:8px; }
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}button:active{transform:none}}
+
+/* Small corner mark with a larger touch area, kept clear of the dice. */
+.member-row { padding-top:24px; }
+.remove-row { position:absolute; top:0; right:2px; display:grid; place-items:center; width:32px; height:28px; padding:0; background:transparent; border-radius:10px; color:#a7a99c; }
+.remove-row span { display:grid; place-items:center; width:16px; height:16px; border:1px solid #e5e5d9; border-radius:5px; background:#faf9f3; font-size:14px; line-height:1; }
+.remove-row:hover span { background:#faebe6; color:#b05c4a; border-color:#efd4cb; }
+.update-banner { display:block; width:100%; padding:12px; margin-bottom:12px; background:#e7efdf; color:#355b3b; border-radius:12px; font-size:12px; text-align:center; }

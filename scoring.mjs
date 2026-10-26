@@ -69,6 +69,28 @@ export function setCupCount(data, personId, value, uid) {
   }
 }
 
+export function removeMember(data, personId, now = new Date().toISOString()) {
+  const person = data.people.find(p => p.id === personId);
+  if (!person) throw Error('这位成员已不在名单中');
+  data.removedPeople ??= [];
+  data.removedPeople.push({person, records: data.records.filter(r => r.personId === personId), removedAt: now});
+  data.people = data.people.filter(p => p.id !== personId);
+  data.records = data.records.filter(r => r.personId !== personId);
+}
+
+// Called inside the app's single validated localStorage transaction.
+export function startNewRound(data, {save, title}, uid) {
+  if (!data.people.length) throw Error('请先添加成员');
+  if (save) {
+    if ((data.results?.length || 0) >= 30) throw Error('已保存 30 份结果，请先导出备份并整理旧结果');
+    const result = {...makeResult(data, title, uid()), unit: '杯'};
+    data.results ??= [];
+    data.results.push(result);
+  }
+  // Append a reversible reset; keep the original records and member details.
+  resetScores(data, data.people, uid);
+}
+
 export function validateResult(result){
   if(result?.unit!==undefined&&!['杯','分'].includes(result.unit))throw Error('结果单位无效');
   if(!result||typeof result.id!=='string'||!result.id||typeof result.title!=='string'||!result.title.trim()||[...result.title].length>24||typeof result.createdAt!=='string'||!Number.isFinite(Date.parse(result.createdAt))||!Array.isArray(result.people)||!result.people.length||!Number.isSafeInteger(result.recordCount)||result.recordCount<0)throw Error('成绩单格式有误');
