@@ -1,5 +1,6 @@
 import {isAvatar} from './avatars.mjs';
 import {validate as validateLegacy} from './ledger.mjs';
+import {validateGames} from './games.mjs?v=3';
 export const SCORE_KEY='qian-yibei.score.v2';
 export const LEGACY_KEY='qian-yibei.v1';
 export const validPoints=n=>Number.isSafeInteger(n)&&n!==0&&Math.abs(n)<=999999999;
@@ -10,10 +11,11 @@ export function validateScore(data){
   if(data?.version!==2||data.mode!=='shared-score'||!Array.isArray(data.people)||!Array.isArray(data.records))fail();
   if(data.profile!==undefined&&(!data.profile||typeof data.profile.name!=='string'||!data.profile.name.trim()||data.profile.name.length>30||(data.profile.avatar!==undefined&&!isAvatar(data.profile.avatar))))fail();
   if(data.legacy!==undefined)validateLegacy(data.legacy);
+  if(data.games!==undefined)validateGames(data.games);
   if(data.removedPeople!==undefined&&!Array.isArray(data.removedPeople))fail();
   const ids=new Set(),recordIds=new Set(),names=new Set();let total=0;
   const timestamp=t=>typeof t==='string'&&Number.isFinite(Date.parse(t));
-  const person=(p,active)=>{if(!p||typeof p.id!=='string'||!p.id||ids.has(p.id)||typeof p.name!=='string'||!p.name.trim()||p.name.length>30||!timestamp(p.createdAt)||!timestamp(p.updatedAt)||(p.avatar!==undefined&&!isAvatar(p.avatar)))fail();if(active&&names.has(p.name))fail();if(active)names.add(p.name);ids.add(p.id)};
+  const person=(p,active)=>{if(!p||typeof p.id!=='string'||!p.id||ids.has(p.id)||typeof p.name!=='string'||!p.name.trim()||p.name.length>30||!timestamp(p.createdAt)||!timestamp(p.updatedAt)||(p.avatar!==undefined&&!isAvatar(p.avatar))||(p.lastAdventure!==undefined&&(typeof p.lastAdventure!=='string'||p.lastAdventure.length>300)))fail();if(active&&names.has(p.name))fail();if(active)names.add(p.name);ids.add(p.id)};
   const records=(rows,personIds)=>{for(const r of rows){if(!r||!personIds.has(r.personId)||typeof r.id!=='string'||!r.id||recordIds.has(r.id)||!validPoints(r.points)||typeof r.reason!=='string'||r.reason.length>200||!timestamp(r.createdAt)||!timestamp(r.updatedAt)||typeof r.batchId!=='string'||!r.batchId)fail();recordIds.add(r.id);total+=Math.abs(r.points);if(!Number.isSafeInteger(total))fail()}};
   for(const p of data.people)person(p,true);records(data.records,new Set(data.people.map(p=>p.id)));
   for(const entry of data.removedPeople||[]){if(!entry||!Array.isArray(entry.records)||!timestamp(entry.removedAt))fail();person(entry.person,false);records(entry.records,new Set([entry.person.id]));}
@@ -46,7 +48,29 @@ export function undoLast(data,uid){
   for(const r of rows)addPoints(data,r.personId,-r.points,'撤销：'+r.reason.slice(0,195),{id:uid(),batchId});
 }
 
+export function addMemberRow(data, id, now = new Date().toISOString()) {
+  const names = new Set([...data.people, ...(data.removedPeople || []).map(entry => entry.person)].map(p => p.name));
+  let number = 1;
+  while (names.has(`成员${number}`)) number++;
+  const person = {id, name: `成员${number}`, createdAt: now, updatedAt: now};
+  data.people.push(person);
+  return person;
+}
+
+export function setCupCount(data, personId, value, uid) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 999999999) throw Error('杯数请填 0–999999999 的整数');
+  if (!data.people.some(person => person.id === personId)) throw Error('这位成员已不在名单中');
+  let delta = value - score(data, personId);
+  const batchId = uid();
+  while (delta) {
+    const points = Math.sign(delta) * Math.min(Math.abs(delta), 999999999);
+    addPoints(data, personId, points, value === 0 ? '杯数清空' : '调整杯数', {id: uid(), batchId});
+    delta -= points;
+  }
+}
+
 export function validateResult(result){
+  if(result?.unit!==undefined&&!['杯','分'].includes(result.unit))throw Error('结果单位无效');
   if(!result||typeof result.id!=='string'||!result.id||typeof result.title!=='string'||!result.title.trim()||[...result.title].length>24||typeof result.createdAt!=='string'||!Number.isFinite(Date.parse(result.createdAt))||!Array.isArray(result.people)||!result.people.length||!Number.isSafeInteger(result.recordCount)||result.recordCount<0)throw Error('成绩单格式有误');
   const ids=new Set();let total=0,previous=Infinity;
   for(const p of result.people){if(!p||typeof p.id!=='string'||!p.id||ids.has(p.id)||typeof p.name!=='string'||!p.name.trim()||p.name.length>30||(!Number.isSafeInteger(p.points)||(p.avatar!==undefined&&!isAvatar(p.avatar))))throw Error('成绩单成员数据有误');if(p.points>previous)throw Error('成绩单排序有误');previous=p.points;ids.add(p.id);total+=Math.abs(p.points);if(!Number.isSafeInteger(total))throw Error('成绩单分数超过范围')}

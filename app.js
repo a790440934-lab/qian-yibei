@@ -1,121 +1,255 @@
-import {resultImage,resultPages} from './result-image.mjs';
-import {compressAvatar,isAvatar} from './avatars.mjs';
-import {SCORE_KEY,LEGACY_KEY,validPoints,score,rankedPeople,validateScore,freshScore,migrateLegacy,addPoints,resetScores,undoLast,makeResult} from './scoring.mjs';
-const app=document.querySelector('#app'),sheet=document.querySelector('#sheet');
-const uid=()=>globalThis.crypto?.randomUUID?.()||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let data=freshScore(),query='',homeOrder=[],storageError=false;
-let resultImageUrl=null,resultGeneration=0;
-function cleanupResult(){resultGeneration++;if(resultImageUrl){URL.revokeObjectURL(resultImageUrl);resultImageUrl=null}}
-sheet.addEventListener('close',cleanupResult);
-try{
-  const raw=localStorage.getItem(SCORE_KEY);
-  if(raw)data=validateScore(JSON.parse(raw));
-  else{const old=localStorage.getItem(LEGACY_KEY);data=old?migrateLegacy(JSON.parse(old)):freshScore();localStorage.setItem(SCORE_KEY,JSON.stringify(data))}
-}catch{storageError=true;data=freshScore()}
-function toast(message){document.querySelector('#toast').textContent=message;clearTimeout(toast.timer);toast.timer=setTimeout(()=>document.querySelector('#toast').textContent='',3000)}
-function commit(next){try{validateScore(next);localStorage.setItem(SCORE_KEY,JSON.stringify(next));data=next;return true}catch(e){toast('未保存：'+e.message);return false}}
-function mutate(fn){if(storageError){toast('存储异常，请先导出原始数据');return false}try{const next=structuredClone(data);fn(next);return commit(next)}catch(e){toast(e.message);return false}}
-function current(){let id;try{id=decodeURIComponent(location.hash.slice(1))}catch{return}return data.people.find(p=>p.id===id)}
-function render(){const p=current();if(p)detail(p);else home()}
-function modal(title,body){cleanupResult();sheet.innerHTML=`<div class="modal-head"><h2>${esc(title)}</h2><button class="close" aria-label="关闭" data-close>×</button></div>${body}`;if(!sheet.open)sheet.showModal();sheet.querySelector('[data-close]').onclick=()=>sheet.close()}
-function confirmAction(title,message,action){modal(title,`<p>${message}</p><div class="settings-actions"><button class="primary" id="confirm">确认</button><button class="secondary" id="cancel">取消</button></div>`);sheet.querySelector('#cancel').onclick=()=>sheet.close();sheet.querySelector('#confirm').onclick=()=>{if(action()!==false){sheet.close();render()}}}
-const scoreText=n=>(n>0?'+':'')+n;
-const scoreClass=n=>n>0?'positive':n<0?'negative':'neutral';
-function cupMark(){return '<svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="m10 23 17-5 7 23c2 7-14 12-16 5zM37 18l17 5-8 23c-2 7-18 2-16-5z"/><path d="m14 34 16-5m4 0 16 5M32 5v6M19 9l4 6M45 9l-4 6"/></g></svg>'}
-function myProfile(){return data.profile||{name:'我'}}
-function editProfile(){const profile=myProfile();modal('我的名字',`<form id="profile-form"><label class="field" for="profile-name">怎么称呼你</label><input class="input" id="profile-name" maxlength="30" required placeholder="填写你的名字" value="${esc(data.profile?.name||'')}"><p class="error" id="profile-error" role="alert"></p><div class="settings-actions"><button class="primary" type="submit">保存名字</button><button class="secondary" type="button" id="profile-cancel">取消</button></div></form>`);sheet.querySelector('#profile-cancel').onclick=()=>sheet.close();sheet.querySelector('form').onsubmit=e=>{e.preventDefault();const name=sheet.querySelector('#profile-name').value.trim();if(!name||name.length>30){sheet.querySelector('#profile-error').textContent='请填写 1–30 个字符的名字';return}if(mutate(next=>{next.profile={...next.profile,name}})){sheet.close();render();toast('我的名字已保存')}}}
-function myProfileMarkup(){const p=myProfile();return `<section class="my-profile" aria-label="我的资料"><button class="avatar avatar-button" data-action="my-avatar" aria-label="设置我的头像">${avatarMarkup(p)}</button><div class="person-identity"><span class="my-profile-label">操作者 · 统一记分</span><button class="person-name" data-action="profile">${data.profile?esc(p.name):'设置操作者名字'}</button><button class="avatar-upload" data-action="my-avatar">${p.avatar?'更换我的头像':'拍照 / 上传我的头像'}</button></div><button class="profile-edit" data-action="profile">修改名字</button></section>`}
-function avatarMarkup(p){return isAvatar(p.avatar)?`<img src="${esc(p.avatar)}" alt="${esc(p.name)}的头像" width="64" height="64">`:esc([...p.name][0])}
-function editAvatar(id){
-  const isSelf=id===null,person=isSelf?myProfile():data.people.find(p=>p.id===id);if(!person)return;
-  modal(isSelf?'设置我的头像':'设置头像',`<div class="avatar-preview" id="avatar-preview">${avatarMarkup(person)}</div><p class="avatar-caption">${esc(person.name)}</p><div class="photo-options"><label class="secondary photo-picker">拍照<input id="avatar-camera" type="file" accept="image/*" capture="${isSelf?'user':'environment'}" aria-label="拍照设置头像"></label><label class="secondary photo-picker">从相册选择<input id="avatar-album" type="file" accept="image/*" aria-label="从相册选择头像"></label></div><p class="notice">照片居中裁成方形，仅保存在当前浏览器。</p><p id="avatar-error" class="error" role="alert"></p><p id="avatar-status" role="status"></p><div class="settings-actions"><button class="primary" id="avatar-save" disabled>使用这张头像</button><button class="secondary" id="avatar-cancel">取消</button></div>`);
-  const preview=sheet.querySelector('#avatar-preview'),save=sheet.querySelector('#avatar-save'),error=sheet.querySelector('#avatar-error'),status=sheet.querySelector('#avatar-status');
-  let pending='',selection=0;
-  const active=()=>sheet.open&&sheet.querySelector('#avatar-preview')===preview;
-  const select=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;const token=++selection;pending='';save.disabled=true;error.textContent='';status.textContent='正在处理照片…';try{const photo=await compressAvatar(file);if(!active()||token!==selection)return;pending=photo;preview.innerHTML=`<img src="${esc(photo)}" alt="新头像预览" width="128" height="128">`;status.textContent='预览满意后，点击下方保存';save.disabled=false}catch(e){if(active()&&token===selection){status.textContent='';error.textContent=e.message}}};
-  sheet.querySelector('#avatar-camera').onchange=select;sheet.querySelector('#avatar-album').onchange=select;
-  sheet.querySelector('#avatar-cancel').onclick=()=>sheet.close();
-  save.onclick=()=>{if(!pending||save.disabled)return;if(!isSelf&&!data.people.some(p=>p.id===id)){error.textContent='这位朋友已不存在，请返回首页';return}if(mutate(next=>{if(isSelf){next.profile={...myProfile(),avatar:pending}}else next.people.find(p=>p.id===id).avatar=pending})){sheet.close();render();toast('头像已保存')}else{error.textContent='头像未保存。可能是本地空间不足，请先导出备份。'}};
+import {resultImage, resultPages} from './result-image.mjs?v=3';
+import {compressAvatar, isAvatar} from './avatars.mjs';
+import {SCORE_KEY, LEGACY_KEY, score, validateScore, freshScore, migrateLegacy,
+  addMemberRow, setCupCount, undoLast, makeResult} from './scoring.mjs?v=3';
+import {DEFAULT_GAMES, parseGames, pickGame} from './games.mjs?v=3';
+
+const app = document.querySelector('#app');
+const sheet = document.querySelector('#sheet');
+const uid = () => globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const scoreText = n => String(n);
+let data = freshScore(), storageError = false;
+let resultImageUrl = null, resultGeneration = 0;
+
+function cleanupResult() {
+  resultGeneration++;
+  if (resultImageUrl) { URL.revokeObjectURL(resultImageUrl); resultImageUrl = null; }
 }
-function home(){
-  const total=data.people.reduce((sum,p)=>sum+score(data,p.id),0);
-  app.innerHTML=`<header class="top"><div class="brand"><span class="logo">${cupMark()}</span><div>欠一杯<small>大家一起玩，分数我来记</small></div></div><button class="icon" data-action="settings" aria-label="数据设置">⋯</button></header>
-  ${myProfileMarkup()}
-  <section class="score-overview" aria-label="统一计分模式"><div class="score-mode"><span>统一计分</span><span>全员闲家 · 无庄家</span></div><h1>同桌尽兴，<em>一处记分。</em></h1><p>由你统一加减，每个人独立计分。</p><div class="score-stats"><span><b>${data.people.length}</b> 位成员</span><span>合计 <b>${scoreText(total)}</b> 分</span><span>${data.records.length} 笔记录</span></div></section>
-  ${storageError?'<p class="error">本地数据读取失败，已暂停编辑。请到数据设置导出原始备份后处理。</p>':''}
-  ${data.legacy?'<p class="notice migration-note">已切换统一计分，旧酒账单独保留。成员新积分从 0 开始，旧账可在设置中导出。</p>':''}
-  <div class="section-title"><h2>全员计分板 <span id="count"></span></h2><button class="text-btn" data-action="sort">按分数排序 ↕</button></div>
-  <label class="search"><span aria-hidden="true">⌕</span><input id="search" aria-label="搜索成员" placeholder="找一位同桌的朋友" value="${esc(query)}"></label>
-  <div class="score-tools"><button class="secondary" data-action="undo" ${data.records.length?'':'disabled'}>撤销上一笔</button><button class="secondary" data-action="reset-all" ${data.people.some(p=>score(data,p.id)!==0)?'':'disabled'}>全员归零</button><button class="secondary" data-action="self">我也参与</button></div>
-  <div class="result-entry"><button class="primary" data-action="final-result" ${data.people.length?'':'disabled'}>保存最终结果 · 生成分享图</button><button class="text-btn" data-action="saved-results">已保存结果（${data.results?.length||0}） ›</button></div>
-  <div id="people"></div><p class="footnote">＋ 加 1 分 · − 减 1 分 · 支持负分<br>只调整选中的成员，不自动扣减其他人。</p>
-  <div class="bottom"><span class="bottom-note">全员平等<br>由你掌控</span><button class="primary" data-action="friend">＋ 添加成员<span>从 0 分开始</span></button></div>`;
-  list();document.querySelector('#search').oninput=e=>{query=e.target.value;list()};
+sheet.addEventListener('close', cleanupResult);
+try {
+  const raw = localStorage.getItem(SCORE_KEY);
+  if (raw) data = validateScore(JSON.parse(raw));
+  else {
+    const old = localStorage.getItem(LEGACY_KEY);
+    data = old ? migrateLegacy(JSON.parse(old)) : freshScore();
+    localStorage.setItem(SCORE_KEY, JSON.stringify(data));
+  }
+} catch { storageError = true; }
+
+function toast(message) {
+  document.querySelector('#toast').textContent = message;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { document.querySelector('#toast').textContent = ''; }, 2600);
 }
-function list(){
-  const ids=new Set(data.people.map(p=>p.id));homeOrder=homeOrder.filter(id=>ids.has(id));for(const p of rankedPeople(data))if(!homeOrder.includes(p.id))homeOrder.push(p.id);
-  const people=homeOrder.map(id=>data.people.find(p=>p.id===id)).filter(p=>p.name.includes(query.trim()));document.querySelector('#count').textContent=`· ${people.length}`;
-  document.querySelector('#people').innerHTML=people.map(p=>{const n=score(data,p.id);return `<article class="counter-card"><div class="counter-person"><button class="avatar avatar-button" data-avatar="${esc(p.id)}" aria-label="设置${esc(p.name)}的头像">${avatarMarkup(p)}</button><div class="person-identity"><button class="person-name" data-person="${esc(p.id)}">${esc(p.name)}</button><span class="member-role">闲家 · 独立积分</span><button class="avatar-upload" data-avatar="${esc(p.id)}">${p.avatar?'拍照 / 更换头像':'拍照 / 上传头像'}</button></div><button class="history-link" data-person="${esc(p.id)}">明细 ›</button></div><div class="counter-controls"><button class="counter-step minus" data-count="-1" data-id="${esc(p.id)}" aria-label="${esc(p.name)}减一分">−</button><div class="counter-value ${scoreClass(n)}"><strong>${scoreText(n)}</strong><span>当前积分</span></div><button class="counter-step plus" data-count="1" data-id="${esc(p.id)}" aria-label="${esc(p.name)}加一分">＋</button></div><div class="counter-hints"><span>减 1 分</span><button class="text-btn" data-adjust="${esc(p.id)}">自定义加减</button><span>加 1 分</span></div></article>`}).join('')||`<div class="empty"><strong>${query?'没找到这位成员':'把同桌的朋友加进来'}</strong>${query?'换个名字试试':'所有人从 0 分开始，由你统一记分。'}<br>${query?'':'你也参与的话，点击“我也参与”。'}</div>`;
+function mutate(fn) {
+  if (storageError) { toast('存储异常，请先到更多菜单导出备份'); return false; }
+  try {
+    const next = structuredClone(data);
+    fn(next);
+    validateScore(next);
+    localStorage.setItem(SCORE_KEY, JSON.stringify(next));
+    data = next;
+    return true;
+  } catch (error) { toast('未保存：' + error.message); return false; }
 }
-function friend(isSelf=false){
-  const initial=isSelf?(data.profile?.name||'我'):'';
-  modal(isSelf?'把我加入计分板':'添加成员',`<form id="friend-form"><label class="field" for="friend-name">成员名字</label><input class="input" id="friend-name" maxlength="30" required value="${esc(initial)}" placeholder="怎么称呼这位朋友？"><p class="notice">所有人都是闲家，从 0 分开始。操作者资料与参赛积分分开保存。</p><p class="error" id="friend-error" role="alert"></p><button class="primary">加入计分板</button></form>`);
-  sheet.querySelector('form').onsubmit=e=>{e.preventDefault();const name=sheet.querySelector('#friend-name').value.trim();if(!name||name.length>30){sheet.querySelector('#friend-error').textContent='请输入 1–30 个字符的名字';return}if(data.people.some(p=>p.name===name)){sheet.querySelector('#friend-error').textContent='同名成员已在计分板，请换一个名字区分';return}if(mutate(next=>{const now=new Date().toISOString();next.people.push({id:uid(),name,createdAt:now,updatedAt:now,...(isSelf&&data.profile?.avatar?{avatar:data.profile.avatar}:{})})})){query='';sheet.close();home();toast('成员已加入，从 0 分开始')}};
+function modal(title, body) {
+  cleanupResult();
+  sheet.innerHTML = `<div class="modal-head"><h2 id="dialog-title">${esc(title)}</h2><button class="close" aria-label="关闭">×</button></div>${body}`;
+  sheet.querySelector('.close').onclick = () => sheet.close();
+  if (!sheet.open) sheet.showModal();
 }
-function renameFriend(){const p=current();if(!p)return;modal('修改成员名字',`<form><label class="field" for="rename-name">成员名字</label><input class="input" id="rename-name" required maxlength="30" value="${esc(p.name)}"><p class="error" id="rename-error" role="alert"></p><button class="primary">保存名字</button></form>`);sheet.querySelector('form').onsubmit=e=>{e.preventDefault();const name=sheet.querySelector('#rename-name').value.trim();if(!name||data.people.some(x=>x.id!==p.id&&x.name===name)){sheet.querySelector('#rename-error').textContent='名字不能为空，也不能与现有成员重复';return}if(mutate(next=>{next.people.find(x=>x.id===p.id).name=name})){sheet.close();render()}}}
-function adjust(id){const p=data.people.find(p=>p.id===id);if(!p)return;let sign=1;
-  modal('给 '+p.name+' 记分',`<form id="score-form"><p>当前积分：<strong>${scoreText(score(data,id))}</strong> 分</p><div class="segments"><button type="button" data-sign="1" class="selected" aria-pressed="true">加分</button><button type="button" data-sign="-1" aria-pressed="false">减分</button></div><label class="field" for="points">调整多少分</label><input class="input" id="points" type="number" inputmode="numeric" min="1" max="999999999" step="1" required value="1"><div class="chips">${[1,3,5,10].map(n=>`<button type="button" data-points="${n}">${n} 分</button>`).join('')}</div><label class="field" for="reason">原因 · 可选</label><input class="input" id="reason" maxlength="200" placeholder="例如：第二轮得分"><p class="notice">只修改 ${esc(p.name)} 的积分，不影响其他成员。</p><p class="error" id="score-error" role="alert"></p><div class="form-footer"><button class="primary">确认记分</button></div></form>`);
-  sheet.querySelectorAll('[data-sign]').forEach(el=>el.onclick=()=>{sign=Number(el.dataset.sign);sheet.querySelectorAll('[data-sign]').forEach(b=>{b.classList.toggle('selected',Number(b.dataset.sign)===sign);b.setAttribute('aria-pressed',String(Number(b.dataset.sign)===sign))})});
-  sheet.querySelectorAll('[data-points]').forEach(el=>el.onclick=()=>{sheet.querySelector('#points').value=el.dataset.points});
-  sheet.querySelector('form').onsubmit=e=>{e.preventDefault();const n=Number(sheet.querySelector('#points').value);if(n<=0||!validPoints(n)){sheet.querySelector('#score-error').textContent='请输入 1–999999999 的整数分数';return}const reason=sheet.querySelector('#reason').value.trim()||'自定义记分';if(mutate(next=>addPoints(next,id,sign*n,reason,{id:uid(),batchId:uid()}))){sheet.close();render();toast('已记分')}};
+function confirmAction(title, message, action) {
+  modal(title, `<p>${message}</p><div class="settings-actions"><button class="primary" id="confirm">确认</button><button class="secondary" id="cancel">取消</button></div>`);
+  sheet.querySelector('#cancel').onclick = () => sheet.close();
+  sheet.querySelector('#confirm').onclick = () => { if (action() !== false) { sheet.close(); render(); } };
 }
-function detail(p){const n=score(data,p.id),rows=data.records.filter(r=>r.personId===p.id).slice().reverse();
- app.innerHTML=`<header class="top"><button class="icon" data-action="back" aria-label="返回首页">‹</button><span class="eyebrow">欠一杯 · 积分明细</span><button class="icon" data-action="settings" aria-label="数据设置">⋯</button></header><section class="detail-head"><button class="avatar avatar-button" data-avatar="${esc(p.id)}" aria-label="设置${esc(p.name)}的头像">${avatarMarkup(p)}</button><h1>${esc(p.name)}</h1><span class="member-role">闲家 · 与其他成员身份相同</span><button class="avatar-upload detail-avatar-upload" data-avatar="${esc(p.id)}">${p.avatar?'拍照 / 更换头像':'拍照 / 上传头像'}</button><button class="text-btn detail-avatar-upload" data-action="rename">修改名字</button><div class="detail-balance ${scoreClass(n)}"><b>${scoreText(n)}</b>分</div><p>每一分，都记得清楚。</p></section><div class="repay-row"><button class="secondary" data-adjust="${esc(p.id)}">自定义加减</button><button class="secondary" data-action="reset-person" ${n?'':'disabled'}>此人归零</button></div><div class="section-title"><h2>计分记录</h2><span>${rows.length} 笔</span></div><div class="history">${rows.map(r=>`<article class="record"><div class="record-top"><small>${esc(new Date(r.createdAt).toLocaleString('zh-CN',{hour12:false}))}</small><strong class="${scoreClass(r.points)}">${scoreText(r.points)} 分</strong></div><p>${esc(r.reason)}</p></article>`).join('')||'<div class="empty">还没有记录，从第一分开始。</div>'}</div><button class="danger remove-friend" data-action="remove-friend">移出成员</button><p class="footnote">积分由全部记录计算，归零和撤销都会留下记录。</p><div class="bottom"><button class="primary" data-adjust="${esc(p.id)}">给 ${esc(p.name)} 记分</button></div>`;
+const camera = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 6l1.5-2h5L16 6h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><circle cx="12" cy="12.5" r="3.5"/></svg>';
+const dice = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><g fill="currentColor" stroke="none"><circle cx="8" cy="8" r="1.4"/><circle cx="16" cy="8" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="8" cy="16" r="1.4"/><circle cx="16" cy="16" r="1.4"/></g></svg>';
+function avatarMarkup(person) {
+  return isAvatar(person.avatar) ? `<img src="${esc(person.avatar)}" alt="${esc(person.name)}的头像" width="48" height="48">` : camera;
 }
-function reset(onlyId){const people=onlyId?data.people.filter(p=>p.id===onlyId):data.people;const changed=people.filter(p=>score(data,p.id)!==0);if(!changed.length)return;
- confirmAction(onlyId?'此人积分归零？':'全员积分归零？',`将 ${changed.length} 位成员的积分归零。所有历史保留，可通过“撤销上一笔”撤回本次归零。`,()=>mutate(next=>resetScores(next,changed,uid)));
+function memberRow(person) {
+  const count = score(data, person.id), id = esc(person.id), name = esc(person.name);
+  return `<article class="member-row" data-person="${id}" aria-label="${name}">
+    <div class="member-identity"><button class="avatar" data-action="avatar" data-id="${id}" aria-label="${name}：拍照或上传头像">${avatarMarkup(person)}</button><button class="member-name" data-action="member" data-id="${id}" aria-label="编辑${name}">${name}</button></div>
+    <div class="stepper" aria-label="${name}的杯数"><button class="step minus" data-action="minus" data-id="${id}" aria-label="${name}减一杯" ${count <= 0 || storageError ? 'disabled' : ''}>−</button><button class="cup-value ${String(count).length > 4 ? 'long-number' : ''}" data-action="amount" data-id="${id}" aria-label="修改${name}的杯数，当前${count}杯"><strong>${count}</strong><span>杯</span></button><button class="step plus" data-action="plus" data-id="${id}" aria-label="${name}加一杯" ${count >= 999999999 || storageError ? 'disabled' : ''}>＋</button></div>
+    <button class="clear-row" data-action="clear" data-id="${id}" aria-label="清空${name}的杯数" ${count === 0 || storageError ? 'disabled' : ''}>清空</button>
+    <button class="dice-button" data-action="dice" data-id="${id}" aria-label="为${name}随机抽取大冒险" ${storageError ? 'disabled' : ''}>${dice}</button>
+  </article>`;
 }
-function undo(){const last=data.records.at(-1);if(!last)return;const rows=data.records.filter(r=>r.batchId===last.batchId);confirmAction('撤销上一笔操作？',rows.length>1?`将撤销上一次批量操作，共 ${rows.length} 条变动，追加反向记录保留历史。`:`将撤销 ${esc(data.people.find(p=>p.id===last.personId)?.name)} 的 ${scoreText(last.points)} 分，追加反向记录保留历史。`,()=>mutate(next=>undoLast(next,uid)))}
-function removeFriend(){const p=current();if(!p)return;confirmAction('移出 '+p.name+'？',`当前 ${scoreText(score(data,p.id))} 分。积分、头像和历史将保留在“已移出成员”，可随时恢复。`,()=>{const ok=mutate(next=>{next.removedPeople??=[];next.removedPeople.push({person:next.people.find(x=>x.id===p.id),records:next.records.filter(r=>r.personId===p.id),removedAt:new Date().toISOString()});next.people=next.people.filter(x=>x.id!==p.id);next.records=next.records.filter(r=>r.personId!==p.id)});if(ok){location.hash='';homeOrder=[]}return ok})}
-function removedFriends(){modal('已移出成员',`<div>${(data.removedPeople||[]).map(e=>`<div class="removed-person"><span class="avatar">${avatarMarkup(e.person)}</span><div class="person-identity"><strong>${esc(e.person.name)}</strong><small>${scoreText(score({records:e.records},e.person.id))} 分 · ${e.records.length} 笔</small></div><button class="secondary" data-restore="${esc(e.person.id)}">恢复</button></div>`).join('')||'<p>还没有移出的成员。</p>'}</div>`);sheet.querySelectorAll('[data-restore]').forEach(el=>el.onclick=()=>restoreFriend(el.dataset.restore))}
-function restoreFriend(id){const entry=data.removedPeople.find(e=>e.person.id===id);if(!entry)return;modal('恢复成员',`<form><label class="field" for="restore-name">成员名字</label><input class="input" id="restore-name" maxlength="30" required value="${esc(entry.person.name)}"><p>恢复原来的积分和历史；同名时请修改名字区分。</p><p class="error" id="restore-error" role="alert"></p><button class="primary">确认恢复</button></form>`);sheet.querySelector('form').onsubmit=e=>{e.preventDefault();const name=sheet.querySelector('#restore-name').value.trim();if(!name||data.people.some(p=>p.name===name)){sheet.querySelector('#restore-error').textContent='名字不能为空，也不能与现有成员重复';return}if(mutate(next=>{const item=next.removedPeople.find(e=>e.person.id===id);if(!item)throw Error('成员已恢复');next.people.push({...item.person,name});next.records.push(...item.records);next.records.sort((a,b)=>a.createdAt.localeCompare(b.createdAt));next.removedPeople=next.removedPeople.filter(e=>e.person.id!==id)})){sheet.close();homeOrder=[];render()}}}
-function download(raw,name){const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000)}
-function settings(){modal('计分设置',`<p>由当前设备统一操作，所有成员身份相同。这里只在当前浏览器保存，不会同步到其他人的手机。</p><div class="settings-actions"><button class="secondary" id="export">导出计分备份</button><label class="secondary photo-picker">导入备份<input id="import" type="file" accept=".json,application/json" aria-label="导入备份"></label><button class="secondary" id="legacy-export">导出旧版酒账</button><button class="secondary" id="removed">已移出成员（${data.removedPeople?.length||0}）</button><button class="danger" id="clear-all">清空计分名单与记录</button></div><p class="footnote">欠一杯 · 统一计分版<br>没有庄家，不自动分配输赢或换算酒量。</p>`);
- sheet.querySelector('#export').onclick=()=>{try{download(storageError?(localStorage.getItem(SCORE_KEY)||'{}'):JSON.stringify(data,null,2),'欠一杯-计分备份')}catch{toast('无法读取备份，请检查浏览器存储权限')}};
- sheet.querySelector('#legacy-export').onclick=()=>{try{const raw=data.legacy?JSON.stringify(data.legacy,null,2):localStorage.getItem(LEGACY_KEY);if(raw)download(raw,'欠一杯-旧酒账');else toast('这台设备没有旧版酒账')}catch{toast('无法读取旧版酒账')}};
- sheet.querySelector('#removed').onclick=removedFriends;
- sheet.querySelector('#clear-all').onclick=()=>confirmAction('清空计分名单与记录？','将清除当前成员、积分和已移出成员，无法撤销。请先导出计分备份；旧版酒账和已保存成绩单继续保留。',()=>{if(storageError){toast('请先导出原始备份并导入有效数据');return false}const next=freshScore();if(data.legacy)next.legacy=data.legacy;if(data.profile)next.profile=data.profile;if(data.results)next.results=data.results;const ok=commit(next);if(ok){homeOrder=[];query='';location.hash=''}return ok});
- sheet.querySelector('#import').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>10e6)throw Error('备份不能超过 10 MB');const parsed=JSON.parse(await file.text()),legacy=parsed.version===1,incoming=legacy?migrateLegacy(parsed):validateScore(parsed);confirmAction('导入并替换计分数据？',legacy?`这是旧酒账：保留原账作备份，将 ${incoming.people.length} 位成员以 0 分加入，旧欠杯不转为积分。当前计分和已保存成绩单将被替换，请先导出备份。`:`将替换为 ${incoming.people.length} 位成员、${incoming.records.length} 条计分记录、${incoming.results?.length||0} 份成绩单，现有成绩单也会被替换，请先导出当前备份。`,()=>{const ok=commit(incoming);if(ok){storageError=false;homeOrder=[];query='';location.hash=''}return ok})}catch(e){toast('导入失败：'+e.message)}};
+function render() {
+  app.innerHTML = `<header class="top"><div class="brand"><span class="brand-mark" aria-hidden="true">杯</span><h1>欠一杯</h1><span class="member-count">${data.people.length} 人</span></div><button class="menu-button" data-action="settings" aria-label="更多设置">•••</button></header>
+    ${storageError ? '<p class="error">无法读取本地数据，已暂停编辑。请从更多菜单导出原始备份。</p>' : ''}
+    <div class="column-labels" aria-hidden="true"><span>头像</span><span>杯数</span><span>清空</span><span>大冒险</span></div>
+    <section class="member-list" aria-label="成员列表">${data.people.map(memberRow).join('') || '<div class="empty"><span class="empty-cup" aria-hidden="true">＋</span><p>添加一位朋友，开始记杯。</p></div>'}</section>
+    <footer class="add-bar"><button class="add-button" data-action="add" ${storageError ? 'disabled' : ''}>＋ 添加一行</button></footer>`;
 }
-app.onclick=e=>{const el=e.target.closest('button');if(!el)return;
- if(el.dataset.avatar){editAvatar(el.dataset.avatar);return}
- if(el.dataset.person){location.hash=el.dataset.person;return}
- if(el.dataset.adjust){adjust(el.dataset.adjust);return}
- if(el.dataset.count){const points=Number(el.dataset.count);if(mutate(next=>addPoints(next,el.dataset.id,points,'快捷'+(points>0?'加分':'减分'),{id:uid(),batchId:uid()}))){home();const b=app.querySelector(`[data-id="${el.dataset.id}"][data-count="${points}"]`);b?.focus({preventScroll:true})}return}
- switch(el.dataset.action){case 'final-result':saveResultForm();break;case 'saved-results':savedResults();break;case 'profile':editProfile();break;case 'my-avatar':editAvatar(null);break;case 'friend':friend();break;case 'self':friend(true);break;case 'sort':homeOrder=[];home();break;case 'back':location.hash='';break;case 'rename':renameFriend();break;case 'remove-friend':removeFriend();break;case 'settings':settings();break;case 'undo':undo();break;case 'reset-all':reset();break;case 'reset-person':reset(current()?.id);break}
+function addRow() {
+  let id;
+  if (mutate(next => { id = addMemberRow(next, uid()).id; })) {
+    render();
+    const row = [...app.querySelectorAll('[data-person]')].find(el => el.dataset.person === id);
+    row?.scrollIntoView({block: 'nearest'});
+  }
+}
+function changeCount(id, action) {
+  const person = data.people.find(p => p.id === id);
+  if (!person) return;
+  const current = score(data, id);
+  if (action === 'minus' && current <= 0) return;
+  const next = action === 'clear' ? 0 : current + (action === 'plus' ? 1 : -1);
+  if (next === current) return;
+  if (mutate(draft => setCupCount(draft, id, next, uid))) {
+    render();
+    if (action === 'clear') toast(person.name + '已清空，可在更多菜单撤销');
+  }
+}
+function editAmount(id) {
+  const person = data.people.find(p => p.id === id);
+  if (!person) return;
+  modal(person.name + '的杯数', `<form><label class="field" for="amount">杯数</label><input class="input" id="amount" type="number" inputmode="numeric" min="0" max="999999999" step="1" value="${score(data,id)}" required><p class="error" role="alert"></p><button class="primary">保存</button></form>`);
+  sheet.querySelector('form').onsubmit = event => {
+    event.preventDefault();
+    if (mutate(next => setCupCount(next, id, Number(sheet.querySelector('#amount').value), uid))) { sheet.close(); render(); }
+    else sheet.querySelector('.error').textContent = '未保存，请检查杯数或导出备份后检查存储空间。';
+  };
+}
+function editMember(id) {
+  const person = data.people.find(p => p.id === id);
+  if (!person) return;
+  modal('成员设置', `<form><label class="field" for="member-name">称呼（可不改）</label><input class="input" id="member-name" maxlength="30" required value="${esc(person.name)}"><p class="error" role="alert"></p><button class="primary">保存称呼</button></form><button class="danger" id="remove-member">移出这一行</button>`);
+  sheet.querySelector('form').onsubmit = event => {
+    event.preventDefault();
+    const name = sheet.querySelector('#member-name').value.trim();
+    if (!name || data.people.some(p => p.id !== id && p.name === name)) { sheet.querySelector('.error').textContent = '称呼不能为空，也不能与其他成员重复'; return; }
+    if (mutate(next => { const p = next.people.find(p => p.id === id); p.name = name; p.updatedAt = new Date().toISOString(); })) { sheet.close(); render(); }
+  };
+  sheet.querySelector('#remove-member').onclick = () => confirmAction('移出' + person.name + '？', '杯数、头像和记录将保留，可从更多菜单恢复。', () => mutate(next => {
+    const p = next.people.find(p => p.id === id);
+    next.removedPeople ??= [];
+    next.removedPeople.push({person: p, records: next.records.filter(r => r.personId === id), removedAt: new Date().toISOString()});
+    next.people = next.people.filter(p => p.id !== id);
+    next.records = next.records.filter(r => r.personId !== id);
+  }));
+}
+function editAvatar(id) {
+  const person = data.people.find(p => p.id === id);
+  if (!person) return;
+  modal(person.name + '的头像', `<div class="avatar-preview" id="avatar-preview">${avatarMarkup(person)}</div><div class="photo-options"><label class="secondary photo-picker">拍照<input id="avatar-camera" type="file" accept="image/*" capture="environment" aria-label="拍照设置头像"></label><label class="secondary photo-picker">从相册选择<input id="avatar-album" type="file" accept="image/*" aria-label="从相册选择头像"></label></div><p id="avatar-error" class="error" role="alert"></p><p id="avatar-status" role="status"></p><div class="settings-actions"><button class="primary" id="avatar-save" disabled>使用这张头像</button><button class="secondary" id="avatar-cancel">取消</button></div>`);
+  const preview = sheet.querySelector('#avatar-preview'), save = sheet.querySelector('#avatar-save'), error = sheet.querySelector('#avatar-error'), status = sheet.querySelector('#avatar-status');
+  let pending = '', selection = 0;
+  const active = () => sheet.open && sheet.querySelector('#avatar-preview') === preview;
+  const select = async event => {
+    const file = event.target.files[0]; event.target.value = ''; if (!file) return;
+    const token = ++selection; pending = ''; save.disabled = true; error.textContent = ''; status.textContent = '正在处理照片…';
+    try {
+      const photo = await compressAvatar(file);
+      if (!active() || token !== selection) return;
+      pending = photo; preview.innerHTML = `<img src="${esc(photo)}" alt="新头像预览" width="128" height="128">`;
+      status.textContent = '预览满意后，点击下方保存'; save.disabled = false;
+    } catch (e) { if (active() && token === selection) { status.textContent = ''; error.textContent = e.message; } }
+  };
+  sheet.querySelector('#avatar-camera').onchange = select;
+  sheet.querySelector('#avatar-album').onchange = select;
+  sheet.querySelector('#avatar-cancel').onclick = () => sheet.close();
+  save.onclick = () => {
+    if (!pending || save.disabled) return;
+    if (mutate(next => { const p = next.people.find(p => p.id === id); if (!p) throw Error('成员已移出'); p.avatar = pending; })) { sheet.close(); render(); toast('头像已保存'); }
+    else error.textContent = '头像未保存，请先导出备份并检查本地存储空间。';
+  };
+}
+function roll(id) {
+  const person = data.people.find(p => p.id === id);
+  if (!person) return;
+  let game;
+  if (!mutate(next => { const p = next.people.find(p => p.id === id); game = pickGame(next.games || DEFAULT_GAMES, p.lastAdventure); p.lastAdventure = game; })) return;
+  const [title, ...body] = game.split('｜');
+  modal(person.name + '的大冒险', `<div class="adventure-card"><span class="adventure-icon">${dice}</span>${body.length ? `<h3>${esc(title)}</h3><p>${esc(body.join('｜'))}</p>` : `<p>${esc(game)}</p>`}</div><p class="hint">杯数由你手动记录。</p><div class="two-actions"><button class="secondary" id="reroll">再摇一次</button><button class="primary" id="finish-game">完成</button></div>`);
+  sheet.querySelector('#reroll').onclick = () => roll(id);
+  sheet.querySelector('#finish-game').onclick = () => sheet.close();
+}
+function editGames() {
+  modal('大冒险题库', `<form><label class="field" for="game-library">每行一个游戏，可以直接修改或添加</label><textarea class="input game-editor" id="game-library" rows="11" spellcheck="false">${esc((data.games || DEFAULT_GAMES).join('\n'))}</textarea><p class="hint">${(data.games || DEFAULT_GAMES).length} 个题目 · 每次随机抽一个</p><p class="error" role="alert"></p><div class="settings-actions"><button class="primary">保存题库</button><button class="secondary" type="button" id="default-games">填入默认题库</button></div></form>`);
+  sheet.querySelector('#default-games').onclick = () => { sheet.querySelector('#game-library').value = DEFAULT_GAMES.join('\n'); sheet.querySelector('.hint').textContent = '已填入默认题库，点击保存后生效'; };
+  sheet.querySelector('form').onsubmit = event => {
+    event.preventDefault();
+    try {
+      const games = parseGames(sheet.querySelector('#game-library').value);
+      if (mutate(next => { next.games = games; })) { sheet.close(); toast('已保存 ' + games.length + ' 个游戏'); }
+      else sheet.querySelector('.error').textContent = '题库未保存，请检查存储空间。';
+    } catch (error) { sheet.querySelector('.error').textContent = error.message; }
+  };
+}
+function download(raw, name) {
+  const url = URL.createObjectURL(new Blob([raw], {type: 'application/json'}));
+  const link = document.createElement('a'); link.href = url; link.download = name + '.json'; document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+function removedMembers() {
+  modal('已移出的成员', `<div>${(data.removedPeople || []).map(entry => `<div class="removed-person"><span>${esc(entry.person.name)}</span><button class="secondary" data-restore="${esc(entry.person.id)}">恢复</button></div>`).join('') || '<p>没有已移出的成员。</p>'}</div>`);
+  sheet.querySelectorAll('[data-restore]').forEach(button => { button.onclick = () => {
+    if (mutate(next => {
+      const entry = next.removedPeople.find(e => e.person.id === button.dataset.restore);
+      if (!entry) throw Error('成员已恢复');
+      if (next.people.some(p => p.name === entry.person.name)) throw Error('存在同名称呼，请先修改在场成员的称呼');
+      next.people.push(entry.person); next.records.push(...entry.records); next.records.sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+      next.removedPeople = next.removedPeople.filter(e => e.person.id !== entry.person.id);
+    })) { render(); removedMembers(); }
+  }; });
+}
+function settings() {
+  modal('更多', `<div class="settings-actions"><button class="secondary" id="games">编辑大冒险题库</button><button class="secondary" id="undo" ${data.records.length && !storageError ? '' : 'disabled'}>撤销上次杯数操作</button><button class="secondary" id="save-result" ${data.people.length && !storageError ? '' : 'disabled'}>保存当前结果 / 生成图片</button><button class="secondary" id="saved-results">已保存结果（${data.results?.length || 0}）</button><button class="secondary" id="export">导出备份</button><label class="secondary photo-picker">导入备份<input id="import" type="file" accept=".json,application/json" aria-label="导入备份"></label><button class="secondary" id="removed">已移出成员（${data.removedPeople?.length || 0}）</button><button class="text-btn" id="legacy-export">导出旧版酒账</button></div><p class="hint">数据保存在此浏览器，换设备请先导出备份。</p>`);
+  sheet.querySelector('#games').onclick = editGames;
+  sheet.querySelector('#save-result').onclick = saveResultForm;
+  sheet.querySelector('#saved-results').onclick = savedResults;
+  sheet.querySelector('#removed').onclick = removedMembers;
+  sheet.querySelector('#undo').onclick = () => { if (mutate(next => undoLast(next, uid))) { sheet.close(); render(); toast('已撤销上次杯数操作'); } };
+  sheet.querySelector('#export').onclick = () => { try { download(storageError ? (localStorage.getItem(SCORE_KEY) || '{}') : JSON.stringify(data, null, 2), '欠一杯-记杯备份'); } catch { toast('无法读取备份'); } };
+  sheet.querySelector('#legacy-export').onclick = () => { try { const raw = data.legacy ? JSON.stringify(data.legacy, null, 2) : localStorage.getItem(LEGACY_KEY); if (raw) download(raw, '欠一杯-旧酒账'); else toast('没有旧版酒账'); } catch { toast('无法读取旧版酒账'); } };
+  sheet.querySelector('#import').onchange = async event => {
+    try {
+      const file = event.target.files[0]; if (!file) return;
+      if (file.size > 10e6) throw Error('备份不能超过 10 MB');
+      const parsed = JSON.parse(await file.text()), incoming = parsed.version === 1 ? migrateLegacy(parsed) : validateScore(parsed);
+      confirmAction('导入并替换数据？', `将导入 ${incoming.people.length} 位成员，同时替换当前头像、记录、题库和已保存结果。请先导出当前备份。`, () => {
+        try { localStorage.setItem(SCORE_KEY, JSON.stringify(incoming)); data = incoming; storageError = false; return true; }
+        catch (error) { toast('未导入：' + error.message); return false; }
+      });
+    } catch (error) { toast('导入失败：' + error.message); }
+  };
+}
+app.onclick = event => {
+  const button = event.target.closest('button');
+  if (!button || button.disabled) return;
+  const {action, id} = button.dataset;
+  if (['minus', 'plus', 'clear'].includes(action)) { changeCount(id, action); return; }
+  switch (action) {
+    case 'add': addRow(); break;
+    case 'avatar': editAvatar(id); break;
+    case 'member': editMember(id); break;
+    case 'amount': editAmount(id); break;
+    case 'dice': roll(id); break;
+    case 'settings': settings(); break;
+  }
 };
-window.addEventListener('hashchange',()=>{sheet.close();render();scrollTo(0,0)});
-window.addEventListener('storage',e=>{if(e.key!==SCORE_KEY&&e.key!==null)return;try{const raw=localStorage.getItem(SCORE_KEY);data=raw?validateScore(JSON.parse(raw)):freshScore();storageError=false;homeOrder=[];sheet.close();render();toast('已更新本机其他标签页的计分')}catch{storageError=true;sheet.close();render()}});
+window.addEventListener('storage', event => {
+  if (event.key !== SCORE_KEY && event.key !== null) return;
+  try {
+    const raw = localStorage.getItem(SCORE_KEY);
+    data = raw ? validateScore(JSON.parse(raw)) : freshScore(); storageError = false;
+    sheet.close(); render(); toast('已同步此浏览器其他页面的修改');
+  } catch { storageError = true; sheet.close(); render(); toast('读取数据失败，已暂停编辑'); }
+});
 render();
 
 function saveResultForm(){
  if(storageError){toast('存储异常，请先处理数据备份');return}
  if(!data.people.length){toast('请先添加成员');return}
  if((data.results?.length||0)>=30){toast('最多保留 30 份成绩单，请先导出备份并删除旧结果');savedResults();return}
- modal('保存最终结果',`<form id="result-form"><label class="field" for="result-title">这次相聚的名字</label><input class="input" id="result-title" maxlength="24" required value="这次相聚的成绩单" placeholder="例如：周五老友局"><p class="notice">保存当前名单中 ${data.people.length} 人的积分，不含已移出成员。保存不清零，之后继续计分或更换头像也不会改变这份成绩单。</p><p class="error" id="result-error" role="alert"></p><button class="primary">保存并生成图片</button></form>`);
- sheet.querySelector('form').onsubmit=e=>{e.preventDefault();try{const result=makeResult(data,sheet.querySelector('#result-title').value,uid());if(mutate(next=>{next.results??=[];next.results.push(result)})){render();viewResult(result.id)}else sheet.querySelector('#result-error').textContent='未能保存，原数据未改变，请先导出备份检查存储空间。'}catch(e){sheet.querySelector('#result-error').textContent=e.message}};
+ modal('保存最终结果',`<form id="result-form"><label class="field" for="result-title">这次相聚的名字</label><input class="input" id="result-title" maxlength="24" required value="这次相聚的成绩单" placeholder="例如：周五老友局"><p class="notice">保存当前名单中 ${data.people.length} 人的杯数，不含已移出成员。保存不清零，之后继续计分或更换头像也不会改变这份成绩单。</p><p class="error" id="result-error" role="alert"></p><button class="primary">保存并生成图片</button></form>`);
+ sheet.querySelector('form').onsubmit=e=>{e.preventDefault();try{const result={...makeResult(data,sheet.querySelector('#result-title').value,uid()),unit:'杯'};if(mutate(next=>{next.results??=[];next.results.push(result)})){render();viewResult(result.id)}else sheet.querySelector('#result-error').textContent='未能保存，原数据未改变，请先导出备份检查存储空间。'}catch(e){sheet.querySelector('#result-error').textContent=e.message}};
 }
 function savedResults(){
  const rows=(data.results||[]).slice().reverse();
- modal('已保存结果',`<p>每份结果固定保留保存时的头像、名字和积分，可随时重新生成图片。</p><div class="saved-results">${rows.map(r=>`<article class="saved-result"><button class="result-open" data-result="${esc(r.id)}"><strong>${esc(r.title)}</strong><small>${esc(new Date(r.createdAt).toLocaleString('zh-CN',{hour12:false}))} · ${r.people.length} 人</small><span>查看成绩单与图片 ›</span></button><button class="text-btn" data-remove-result="${esc(r.id)}">删除</button></article>`).join('')||'<div class="empty">还没有保存结果。在首页点击“保存最终结果”。</div>'}</div>`);
+ modal('已保存结果',`<p>每份结果固定保留保存时的头像、名字和数值，可随时重新生成图片。</p><div class="saved-results">${rows.map(r=>`<article class="saved-result"><button class="result-open" data-result="${esc(r.id)}"><strong>${esc(r.title)}</strong><small>${esc(new Date(r.createdAt).toLocaleString('zh-CN',{hour12:false}))} · ${r.people.length} 人</small><span>查看成绩单与图片 ›</span></button><button class="text-btn" data-remove-result="${esc(r.id)}">删除</button></article>`).join('')||'<div class="empty">还没有保存结果。在更多菜单点击“保存当前结果”。</div>'}</div>`);
  sheet.querySelectorAll('[data-result]').forEach(el=>el.onclick=()=>viewResult(el.dataset.result));
- sheet.querySelectorAll('[data-remove-result]').forEach(el=>el.onclick=()=>{const r=data.results.find(r=>r.id===el.dataset.removeResult);if(!r)return;confirmAction('删除这份成绩单？',`只删除「${esc(r.title)}」的保存副本，不影响当前积分。已下载的图片仍保留。`,()=>mutate(next=>{next.results=next.results.filter(r=>r.id!==el.dataset.removeResult)}))});
+ sheet.querySelectorAll('[data-remove-result]').forEach(el=>el.onclick=()=>{const r=data.results.find(r=>r.id===el.dataset.removeResult);if(!r)return;confirmAction('删除这份成绩单？',`只删除「${esc(r.title)}」的保存副本，不影响当前杯数。已下载的图片仍保留。`,()=>mutate(next=>{next.results=next.results.filter(r=>r.id!==el.dataset.removeResult)}))});
 }
 async function viewResult(id,page=0){
  const result=data.results?.find(r=>r.id===id);if(!result){toast('这份结果已不存在');return}
  const pages=resultPages(result);if(page>=pages||page<0)return;
- modal('最终结果 · 已保存',`<div class="result-preview"><p id="image-status" role="status">正在生成分享图片…</p><img id="result-image" alt="${esc(result.title)}，第 ${page+1} 张成绩单" hidden></div>${pages>1?`<div class="result-pagination"><button class="secondary" id="result-prev" ${page===0?'disabled':''}>上一张</button><span>${page+1} / ${pages} 张</span><button class="secondary" id="result-next" ${page===pages-1?'disabled':''}>下一张</button></div>`:''}<p class="notice">${pages>1?`人数较多，已分为 ${pages} 张图，请逐张保存。`:''}可长按图片保存，或点击下载。分享到朋友圈由你在微信中完成。</p><div class="settings-actions"><button class="primary" id="result-download" disabled>下载${pages>1?'本张':'成绩单'}图片</button><button class="secondary" id="result-share" disabled>分享图片 / 存储到文件</button><button class="text-btn" id="result-list">查看已保存结果</button></div><details class="result-text"><summary>查看全部文字记录</summary><h3>${esc(result.title)}</h3><p>保存于 ${esc(new Date(result.createdAt).toLocaleString('zh-CN',{hour12:false}))}</p><table><thead><tr><th scope="col">成员</th><th scope="col">积分</th></tr></thead><tbody>${result.people.map(p=>`<tr><td>${esc(p.name)}</td><td>${scoreText(p.points)} 分</td></tr>`).join('')}</tbody></table></details>`);
+ modal('最终结果 · 已保存',`<div class="result-preview"><p id="image-status" role="status">正在生成分享图片…</p><img id="result-image" alt="${esc(result.title)}，第 ${page+1} 张成绩单" hidden></div>${pages>1?`<div class="result-pagination"><button class="secondary" id="result-prev" ${page===0?'disabled':''}>上一张</button><span>${page+1} / ${pages} 张</span><button class="secondary" id="result-next" ${page===pages-1?'disabled':''}>下一张</button></div>`:''}<p class="notice">${pages>1?`人数较多，已分为 ${pages} 张图，请逐张保存。`:''}可长按图片保存，或点击下载。分享到朋友圈由你在微信中完成。</p><div class="settings-actions"><button class="primary" id="result-download" disabled>下载${pages>1?'本张':'成绩单'}图片</button><button class="secondary" id="result-share" disabled>分享图片 / 存储到文件</button><button class="text-btn" id="result-list">查看已保存结果</button></div><details class="result-text"><summary>查看全部文字记录</summary><h3>${esc(result.title)}</h3><p>保存于 ${esc(new Date(result.createdAt).toLocaleString('zh-CN',{hour12:false}))}</p><table><thead><tr><th scope="col">成员</th><th scope="col">${result.unit || '分'}数</th></tr></thead><tbody>${result.people.map(p=>`<tr><td>${esc(p.name)}</td><td>${scoreText(p.points)} ${result.unit || '分'}</td></tr>`).join('')}</tbody></table></details>`);
  sheet.querySelector('#result-list').onclick=savedResults;
  if(pages>1){sheet.querySelector('#result-prev').onclick=()=>viewResult(id,page-1);sheet.querySelector('#result-next').onclick=()=>viewResult(id,page+1)}
  const generation=resultGeneration;
